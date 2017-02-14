@@ -17,7 +17,7 @@
 
 #include <Rcpp.h>
 #include <boost/math/tools/roots.hpp>
-#include <boost/math/special_functions/binomial.hpp>
+#include <boost/math/distributions/negative_binomial.hpp>
 #include <boost/math/distributions/gamma.hpp>
 #include <limits>
 using namespace Rcpp;
@@ -62,17 +62,13 @@ double alphastar(int d, double p, double r, double wstar)
 
   int k = d;
   std::vector<double> toSum;
-
-  /* For scalar calculation, compute pmf of NegBinom 
-     using c++ Boost "binomial_coefficient".  
-     Rcpp sugar version of dnbinom is vectorised, 
-     so not convinient to work with here. */
   
   // Function dnbinom("dnbinom");
-  
+  boost::math::negative_binomial_distribution<double> nbinom(r,p);
   while(true){
     // double term = as<double>(dnbinom(k, r, p))*pow(wstar,k);
-    double dnb = boost::math::binomial_coefficient<double>(k+r-1,k) * pow(p,k) * pow(1-p, r);
+    
+    double dnb = pdf(nbinom,k);
     double term = dnb * pow(wstar,k);
 
     toSum.push_back(term);
