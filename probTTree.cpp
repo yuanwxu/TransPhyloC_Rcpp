@@ -14,7 +14,7 @@
 
 
 // [[Rcpp::depends(BH)]]
-
+// [[Rcpp::plugins(cpp11)]]
 #include <Rcpp.h>
 #include <boost/math/tools/roots.hpp>
 #include <boost/math/distributions/negative_binomial.hpp>
@@ -84,8 +84,38 @@ double alphastar(int d, double p, double r, double wstar)
   return sum(choose(v, d)*toSumR)/pow(wstar,d);
 }
     
-       
- 
+
+// [[Rcpp::export]]
+NumericVector wbar(double tinf, double dateT, double rOff, double pOff, double pi, double shGen, double scGen, double shSam, double scSam, double delta_t=0.05)
+{
+  int n = std::round((dateT-tinf)/delta_t); 
+  NumericVector grid(n);
+  for(int i=0; i<n; ++i) // use the left point of each subinterval
+    grid[i] = tinf+i*delta_t;
+
+  NumericVector pi2 = pi*pgamma(dateT-grid, shSam, scSam);
+  NumericVector F = 1-pgamma(dateT-grid, shGen, scGen);
+
+
+  NumericVector w(n+1), out(n+1);
+  out[n] = w[n] = 1.0;
+  NumericVector gam = dgamma(seq_len(n)*delta_t,shGen,scGen);
+  double sumPrev = 0.5 * gam[0];
+  for(int i=n-1; i>=0; --i){
+
+    w[i] = (1-pi2[i]) * pow((1-pOff)/(1-pOff*F[i]-pOff*delta_t*sumPrev), rOff);
+    out[i] = F[i] + sumPrev;
+    
+    sumPrev = 0.0;
+    for(int j=0; j<n-i; ++j)
+      sumPrev += gam[j]*w[i+j];
+    sumPrev += 0.5 * gam[n-i];
+  }
+  return out;
+}
+      
+
+
 // [[Rcpp::export]]
 double probTTreeC(NumericMatrix ttree, double rOff, double pOff, double pi, double shGen, double scGen, double shSam, double scSam, double dateT){
 
