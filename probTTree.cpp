@@ -96,15 +96,16 @@ NumericVector wbar(double tinf, double dateT, double rOff, double pOff, double p
   NumericVector pi2 = pi*pgamma(dateT-grid, shSam, scSam);
   NumericVector F = 1-pgamma(dateT-grid, shGen, scGen);
 
-
   NumericVector w(n+1), out(n+1);
   out[n] = w[n] = 1.0;
-  NumericVector gam = dgamma(seq_len(n)*delta_t,shGen,scGen);
+
+  IntegerVector seq = seq_len(n);
+  NumericVector gam = dgamma(as<NumericVector>(seq)*delta_t,shGen,scGen);
   double sumPrev = 0.5 * gam[0];
   for(int i=n-1; i>=0; --i){
 
     w[i] = (1-pi2[i]) * pow((1-pOff)/(1-pOff*F[i]-pOff*delta_t*sumPrev), rOff);
-    out[i] = F[i] + sumPrev;
+    out[i] = F[i] + sumPrev*delta_t;
     
     sumPrev = 0.0;
     for(int j=0; j<n-i; ++j)
