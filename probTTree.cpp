@@ -57,16 +57,14 @@ double wstar_rootFinder(double pi, double p, double r)
 
 double alphastar(int d, double p, double r, double wstar)
 {
-  if(abs(r-1.0)<1e-6) // Exact solution available
+  if(std::abs(r-1.0)<1e-6) // Exact solution available
     return (1-p)/(1-p*wstar)*pow(p/(1-p*wstar), d);
 
   int k = d;
   std::vector<double> toSum;
   
-  // Function dnbinom("dnbinom");
   boost::math::negative_binomial_distribution<double> nbinom(r,p);
   while(true){
-    // double term = as<double>(dnbinom(k, r, p))*pow(wstar,k);
     
     double dnb = pdf(nbinom,k);
     double term = dnb * pow(wstar,k);
@@ -85,13 +83,45 @@ double alphastar(int d, double p, double r, double wstar)
 }
     
 
+/* alpha() computes equation (10) in TransPhylo paper
+   wbar0 --- wbar computed from wbar() using the oldest infection time. */
+double alpha(double tinf, int d, double p, double r, NumericVector wbar0, double gridStart, double delta_t)
+{
+  double wbar_tinf = wbar0[std::round((tinf - gridStart)/delta_t)];
+  if(std::abs(r-1.0)<1e-6) // Exact solution available
+    return (1-p)/(1-p*wbar_tinf)*pow(p/(1-p*wbar_tinf), d);
+
+
+  int k = d;
+  std::vector<double> toSum;
+  
+  while(true){
+    
+    double dnb = R::dnbinom(k,r,p,0);
+    double term = dnb * pow(wbar_tinf,k);
+
+    toSum.push_back(term);
+    if(Rf_choose(k,d)*term < 1e-8) break; // Achieved desired accuracy
+    
+    k++;
+  }
+
+  NumericVector toSumR = wrap(toSum); // Convert toSum to Rcpp NumericVector
+  NumericVector v(k-d+1);
+  for(int i=0; i<v.size(); i++) v[i] = i+d;
+
+  return sum(choose(v, d)*toSumR)/pow(wbar_tinf,d);
+}
+
+  
+
 // [[Rcpp::export]]
 NumericVector wbar(double tinf, double dateT, double rOff, double pOff, double pi, double shGen, double scGen, double shSam, double scSam, double delta_t=0.05)
 {
   int n = std::round((dateT-tinf)/delta_t); 
   NumericVector grid(n);
   for(int i=0; i<n; ++i) // use the left point of each subinterval
-    grid[i] = tinf+i*delta_t;
+    grid[i] = dateT-n*delta_t+i*delta_t;
 
   NumericVector pi2 = pi*pgamma(dateT-grid, shSam, scSam);
   NumericVector F = 1-pgamma(dateT-grid, shGen, scGen);
@@ -118,7 +148,7 @@ NumericVector wbar(double tinf, double dateT, double rOff, double pOff, double p
 
 
 // [[Rcpp::export]]
-double probTTreeC(NumericMatrix ttree, double rOff, double pOff, double pi, double shGen, double scGen, double shSam, double scSam, double dateT){
+double probTTreeC(NumericMatrix ttree, double rOff, double pOff, double pi, double shGen, double scGen, double shSam, double scSam, double dateT, double delta_t=0.05){
 
   int numCases = ttree.nrow();
   boost::math::gamma_distribution<double> genGamma(shGen, scGen);
@@ -148,7 +178,36 @@ double probTTreeC(NumericMatrix ttree, double rOff, double pOff, double pi, doub
       
     return sum(lsstatus) + accum;
   }
+  else{
+    // Ongoing outbreak -- observation ends at finite dateT
+    NumericVector probSam = pi*pgamma(dateT-ttree(_,0),shSam,scSam);
+    NumericVector sstatus = ifelse(is_na(ttree(_,1)), 1-probSam, pi*dgamma(ttree(_,1)-ttree(_,0),shSam,scSam));
+    NumericVector lsstatus = log(sstatus);
 
-  // Ongoing case not implemented.
-  return 0;
+    std::map<int, std::vector<int> > infMap; // Map from infector to infected
+    std::vector<std::vector<int> > progeny(numCases);
+    for(int i=0; i<numCases; ++i){
+      if(ttree(i,2) == 0) continue; // Found root node i 
+
+      progeny[ttree(i,2)-1].push_back(i); // C++ index starts from 0
+      infMap[ttree(i,2)-1] = progeny[ttree(i,2)-1]; 
+    }
+
+    double accum = 0.0;
+    double tinfmin = min(ttree(_,0));
+    NumericVector wbar0 = wbar(tinfmin, dateT, rOff, pOff, pi, shGen, scGen, shSam, scSam, delta_t);
+    // wbar0.size = grid size +1 
+    double gridStart = dateT-(wbar0.size()-1)*delta_t;
+
+    for(int i=0; i<numCases; ++i){
+
+      accum += log(alpha(ttree(i,0), progeny[i].size(), pOff, rOff, wbar0, gridStart, delta_t));
+
+      for(int j=0; j<progeny[i].size(); ++j)
+	accum += (R::dgamma(ttree(progeny[i][j],0)-ttree(i,0), shGen, scGen, 1) - R::pgamma(dateT-ttree(i,0), shGen, scGen, 1, 1));
+    }
+
+    return sum(lsstatus) + accum;
+  }
 }
+
